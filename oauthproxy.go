@@ -68,8 +68,10 @@ type OAuthProxy struct {
 	PassAccessToken     bool
 	CookieCipher        *cookie.Cipher
 	skipAuthRegex       []string
+	skipAuthHeader      []string
 	skipAuthPreflight   bool
 	compiledRegex       []*regexp.Regexp
+	compiledHeader      []*regexp.Regexp
 	templates           *template.Template
 	Footer              string
 }
@@ -150,6 +152,9 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 	for _, u := range opts.CompiledRegex {
 		log.Printf("compiled skip-auth-regex => %q", u)
 	}
+	for _, u := range opts.CompiledHeader {
+		log.Printf("compiled skip-auth-header => %q", u)
+	}
 
 	redirectURL := opts.redirectURL
 	redirectURL.Path = fmt.Sprintf("%s/callback", opts.ProxyPrefix)
@@ -199,8 +204,10 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 		serveMux:           serveMux,
 		redirectURL:        redirectURL,
 		skipAuthRegex:      opts.SkipAuthRegex,
+		skipAuthHeader:     opts.SkipAuthHeader,
 		skipAuthPreflight:  opts.SkipAuthPreflight,
 		compiledRegex:      opts.CompiledRegex,
+		compiledHeader:     opts.CompiledHeader,
 		SetXAuthRequest:    opts.SetXAuthRequest,
 		PassBasicAuth:      opts.PassBasicAuth,
 		PassUserHeaders:    opts.PassUserHeaders,
@@ -425,7 +432,7 @@ func (p *OAuthProxy) GetRedirect(req *http.Request) (redirect string, err error)
 
 func (p *OAuthProxy) IsWhitelistedRequest(req *http.Request) (ok bool) {
 	isPreflightRequestAllowed := p.skipAuthPreflight && req.Method == "OPTIONS"
-	return isPreflightRequestAllowed || p.IsWhitelistedPath(req.URL.Path)
+	return isPreflightRequestAllowed || p.IsWhitelistedPath(req.URL.Path) || p.IsWhitelistedHeader(req)
 }
 
 func (p *OAuthProxy) IsWhitelistedPath(path string) (ok bool) {
@@ -436,6 +443,22 @@ func (p *OAuthProxy) IsWhitelistedPath(path string) (ok bool) {
 		}
 	}
 	return
+}
+
+func (p *OAuthProxy) IsWhitelistedHeader(req *http.Request) bool {
+	for _, expr := range p.compiledHeader {
+		if expr.MatchString("Host: " + req.Host) {
+			return true
+		}
+		for header, values := range req.Header {
+			for _, value := range values {
+				if expr.MatchString(header + ": " + value) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func getRemoteAddr(req *http.Request) (s string) {
@@ -452,6 +475,8 @@ func (p *OAuthProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		p.RobotsTxt(rw)
 	case path == p.PingPath:
 		p.PingPage(rw)
+	case p.IsWhitelistedRequest(req) && path == p.AuthOnlyPath:
+		rw.WriteHeader(http.StatusAccepted)
 	case p.IsWhitelistedRequest(req):
 		p.serveMux.ServeHTTP(rw, req)
 	case path == p.SignInPath:

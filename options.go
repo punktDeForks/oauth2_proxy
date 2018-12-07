@@ -50,6 +50,7 @@ type Options struct {
 
 	Upstreams             []string `flag:"upstream" cfg:"upstreams"`
 	SkipAuthRegex         []string `flag:"skip-auth-regex" cfg:"skip_auth_regex"`
+	SkipAuthHeader        []string `flag:"skip-auth-header" cfg:"skip_auth_header"`
 	PassBasicAuth         bool     `flag:"pass-basic-auth" cfg:"pass_basic_auth"`
 	BasicAuthPassword     string   `flag:"basic-auth-password" cfg:"basic_auth_password"`
 	PassAccessToken       bool     `flag:"pass-access-token" cfg:"pass_access_token"`
@@ -76,11 +77,12 @@ type Options struct {
 	SignatureKey string `flag:"signature-key" cfg:"signature_key" env:"OAUTH2_PROXY_SIGNATURE_KEY"`
 
 	// internal values that are set after config validation
-	redirectURL   *url.URL
-	proxyURLs     []*url.URL
-	CompiledRegex []*regexp.Regexp
-	provider      providers.Provider
-	signatureData *SignatureData
+	redirectURL    *url.URL
+	proxyURLs      []*url.URL
+	CompiledRegex  []*regexp.Regexp
+	CompiledHeader []*regexp.Regexp
+	provider       providers.Provider
+	signatureData  *SignatureData
 }
 
 type SignatureData struct {
@@ -159,6 +161,15 @@ func (o *Options) Validate() error {
 				"error compiling regex=%q %s", u, err))
 		}
 		o.CompiledRegex = append(o.CompiledRegex, CompiledRegex)
+	}
+
+	for _, u := range o.SkipAuthHeader {
+		CompiledHeader, err := regexp.Compile(u)
+		if err != nil {
+			msgs = append(msgs, fmt.Sprintf("error compiling regex=%q %s", u, err))
+			continue
+		}
+		o.CompiledHeader = append(o.CompiledHeader, CompiledHeader)
 	}
 	msgs = parseProviderInfo(o, msgs)
 
