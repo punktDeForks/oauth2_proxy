@@ -107,10 +107,12 @@ type OAuthProxy struct {
 	PassAuthorization    bool
 	PreferEmailToUser    bool
 	skipAuthRegex        []string
+	skipAuthHeader       []string
 	skipAuthPreflight    bool
 	skipJwtBearerTokens  bool
 	jwtBearerVerifiers   []*oidc.IDTokenVerifier
 	compiledRegex        []*regexp.Regexp
+	compiledHeader       []*regexp.Regexp
 	templates            *template.Template
 	Banner               string
 	Footer               string
@@ -254,6 +256,9 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 	for _, u := range opts.compiledRegex {
 		logger.Printf("compiled skip-auth-regex => %q", u)
 	}
+	for _, u := range opts.compiledHeader {
+		logger.Printf("compiled skip-auth-header => %q", u)
+	}
 
 	if opts.SkipJwtBearerTokens {
 		logger.Printf("Skipping JWT tokens from configured OIDC issuer: %q", opts.OIDCIssuerURL)
@@ -304,10 +309,12 @@ func NewOAuthProxy(opts *Options, validator func(string) bool) *OAuthProxy {
 		redirectURL:          redirectURL,
 		whitelistDomains:     opts.WhitelistDomains,
 		skipAuthRegex:        opts.SkipAuthRegex,
+		skipAuthHeader:       opts.SkipAuthHeader,
 		skipAuthPreflight:    opts.SkipAuthPreflight,
 		skipJwtBearerTokens:  opts.SkipJwtBearerTokens,
 		jwtBearerVerifiers:   opts.jwtBearerVerifiers,
 		compiledRegex:        opts.compiledRegex,
+		compiledHeader:       opts.compiledHeader,
 		SetXAuthRequest:      opts.SetXAuthRequest,
 		PassBasicAuth:        opts.PassBasicAuth,
 		SetBasicAuth:         opts.SetBasicAuth,
@@ -623,7 +630,23 @@ func (p *OAuthProxy) IsValidRedirect(redirect string) bool {
 // IsWhitelistedRequest is used to check if auth should be skipped for this request
 func (p *OAuthProxy) IsWhitelistedRequest(req *http.Request) bool {
 	isPreflightRequestAllowed := p.skipAuthPreflight && req.Method == "OPTIONS"
-	return isPreflightRequestAllowed || p.IsWhitelistedPath(req.URL.Path)
+	return isPreflightRequestAllowed || p.IsWhitelistedPath(req.URL.Path) || p.IsWhitelistedHeader(req)
+}
+
+func (p *OAuthProxy) IsWhitelistedHeader(req *http.Request) bool {
+	for _, expr := range p.compiledHeader {
+		if expr.MatchString("Host: " + req.Host) {
+			return true
+		}
+		for header, values := range req.Header {
+			for _, value := range values {
+				if expr.MatchString(header + ": " + value) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // IsWhitelistedPath is used to check if the request path is allowed without auth
@@ -664,12 +687,16 @@ func (p *OAuthProxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		prepareNoCache(rw)
 	}
 
+	isWhitelistedRequest := p.IsWhitelistedRequest(req)
+
 	switch path := req.URL.Path; {
 	case path == p.RobotsPath:
 		p.RobotsTxt(rw)
 	case path == p.PingPath:
 		p.PingPage(rw)
-	case p.IsWhitelistedRequest(req):
+	case path == p.AuthOnlyPath && isWhitelistedRequest:
+		rw.WriteHeader(http.StatusAccepted)
+	case isWhitelistedRequest:
 		p.serveMux.ServeHTTP(rw, req)
 	case path == p.SignInPath:
 		p.SignIn(rw, req)

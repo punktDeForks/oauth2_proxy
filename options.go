@@ -69,6 +69,7 @@ type Options struct {
 
 	Upstreams                     []string      `flag:"upstream" cfg:"upstreams" env:"OAUTH2_PROXY_UPSTREAMS"`
 	SkipAuthRegex                 []string      `flag:"skip-auth-regex" cfg:"skip_auth_regex" env:"OAUTH2_PROXY_SKIP_AUTH_REGEX"`
+	SkipAuthHeader                []string      `flag:"skip-auth-header" cfg:"skip_auth_header"`
 	SkipJwtBearerTokens           bool          `flag:"skip-jwt-bearer-tokens" cfg:"skip_jwt_bearer_tokens" env:"OAUTH2_PROXY_SKIP_JWT_BEARER_TOKENS"`
 	ExtraJwtIssuers               []string      `flag:"extra-jwt-issuers" cfg:"extra_jwt_issuers" env:"OAUTH2_PROXY_EXTRA_JWT_ISSUERS"`
 	PassBasicAuth                 bool          `flag:"pass-basic-auth" cfg:"pass_basic_auth" env:"OAUTH2_PROXY_PASS_BASIC_AUTH"`
@@ -132,6 +133,7 @@ type Options struct {
 	redirectURL        *url.URL
 	proxyURLs          []*url.URL
 	compiledRegex      []*regexp.Regexp
+	compiledHeader     []*regexp.Regexp
 	provider           providers.Provider
 	sessionStore       sessionsapi.SessionStore
 	signatureData      *SignatureData
@@ -376,6 +378,16 @@ func (o *Options) Validate() error {
 		}
 		o.compiledRegex = append(o.compiledRegex, compiledRegex)
 	}
+
+	for _, u := range o.SkipAuthHeader {
+		compiledHeader, err := regexp.Compile(u)
+		if err != nil {
+			msgs = append(msgs, fmt.Sprintf("error compiling regex=%q %s", u, err))
+			continue
+		}
+		o.compiledHeader = append(o.compiledHeader, compiledHeader)
+	}
+
 	msgs = parseProviderInfo(o, msgs)
 
 	var cipher *encryption.Cipher
