@@ -873,7 +873,7 @@ func (p *OAuthProxy) OAuthCallback(rw http.ResponseWriter, req *http.Request) {
 	csrf, err := cookies.LoadCSRFCookie(req, p.CookieOptions)
 	if err != nil {
 		logger.Println(req, logger.AuthFailure, "Invalid authentication via OAuth2. Error while loading CSRF cookie:", err.Error())
-		p.ErrorPage(rw, req, http.StatusForbidden, err.Error(), "Login Failed: Unable to find a valid CSRF token. Please try again.")
+		p.ErrorPage(rw, req, http.StatusTeapot, err.Error(), "Login Failed: Unable to find a valid CSRF token. Please try again.")
 		return
 	}
 
